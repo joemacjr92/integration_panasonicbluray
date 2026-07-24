@@ -1,0 +1,86 @@
+name: Build and Publish
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*.*.*" ] 
+  workflow_dispatch: # Allows manual triggering from the Actions tab
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }} 
+
+jobs:
+  build-docker:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for multi-arch builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64 
+
+  build-remote-asset:
+    name: Build Remote Tarball Asset
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Package Remote Asset
+        run: |
+          mkdir -p dist/panasonicbluray
+          # The "|| true" prevents the build from failing if panasonic.png isn't found for any reason
+          cp -r src driver.json requirements.txt panasonic.png dist/panasonicbluray/ || true
+          
+          cd dist
+          tar -czvf integration_panasonicbluray.tar.gz panasonicbluray/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: remote-asset
+          path: dist/integration_panasonicbluray.tar.gz
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/integration_panasonicbluray.tar.gz
+          generate_release_notes: true
