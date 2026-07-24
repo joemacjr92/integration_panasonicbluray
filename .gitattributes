@@ -1,0 +1,2 @@
+Dockerfile merge=ours
+.github/workflows/build.yaml merge=ours
